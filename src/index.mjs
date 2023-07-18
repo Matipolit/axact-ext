@@ -3,7 +3,7 @@ import htm from "https://unpkg.com/htm?module";
 
 const html = htm.bind(h);
 
-function App(props) {
+function CPUS(props) {
   return html`
     <div>
       ${props.cpus.map((cpu) => {
@@ -16,28 +16,40 @@ function App(props) {
   `;
 }
 
-let i = 0;
+function RAM(props) {
+  const ram = props.ram;
+  const used_percent = (ram.used / ram.total)*100;
+  return html`
+    <div>
+      <div class="bar">
+        <div class="bar-inner" style="width: ${used_percent}%"></div>
+        <label>${(ram.used*0.000000001).toFixed(2)} GB</label>
+      </div>
+    </div>
+    `;
+}
 
-// let update = async () => {
-//   let response = await fetch("/api/cpus");
-//   if (response.status !== 200) {
-//     throw new Error(`HTTP error! status: ${response.status}`);
-//   }
 
-//   let json = await response.json();
-//   render(html`<${App} cpus=${json}></${App}>`, document.body);
-// };
+let url_cpus = new URL("/realtime/cpus", window.location.href);
+url_cpus.protocol = url_cpus.protocol.replace("http", "ws");
 
-// update();
-// setInterval(update, 200);
+const cpus_div = document.getElementById("cpus");
+const ram_div = document.getElementById("ram");
 
-let url = new URL("/realtime/cpus", window.location.href);
-// http => ws
-// https => wss
-url.protocol = url.protocol.replace("http", "ws");
-
-let ws = new WebSocket(url.href);
-ws.onmessage = (ev) => {
-  let json = JSON.parse(ev.data);
-  render(html`<${App} cpus=${json}></${App}>`, document.body);
+let ws_cpu = new WebSocket(url_cpus.href);
+ws_cpu.onmessage = (cpu_ev) => {
+  let cpu_json = JSON.parse(cpu_ev.data);
+  render(html`<${CPUS} cpus=${cpu_json}></${CPUS}>`, cpus_div);
 };
+
+
+let url_ram= new URL("/realtime/ram", window.location.href);
+url_ram.protocol = url_ram.protocol.replace("http", "ws");
+
+let ws_ram = new WebSocket(url_ram.href);
+ws_ram.onmessage = (ram_ev) => {
+  let ram_json = JSON.parse(ram_ev.data);
+  render(html`<${RAM} ram=${ram_json}></${RAM}>`, ram_div);
+};
+
+

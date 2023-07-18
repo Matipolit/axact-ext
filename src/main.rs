@@ -8,6 +8,9 @@ use axum::{
     routing::get,
     Router, Server,
 };
+use serde::{Deserialize, Serialize};
+use serde_json;
+use std::time;
 use sysinfo::{CpuExt, System, SystemExt};
 use tokio::sync::broadcast;
 
@@ -15,31 +18,40 @@ type Snapshot = Vec<f32>;
 
 #[tokio::main]
 async fn main() {
-    let (tx, _) = broadcast::channel::<Snapshot>(1);
+    let (cpus_broadcast, _) = broadcast::channel::<Snapshot>(1);
+    let (ram_broadcast, _) = broadcast::channel::<MemState>(1);
 
     tracing_subscriber::fmt::init();
 
-    let app_state = AppState { tx: tx.clone() };
+    let app_state = AppState {
+        cpus_broadcast: cpus_broadcast.clone(),
+        ram_broadcast: ram_broadcast.clone(),
+    };
 
     let router = Router::new()
         .route("/", get(root_get))
         .route("/index.mjs", get(indexmjs_get))
         .route("/index.css", get(indexcss_get))
         .route("/realtime/cpus", get(realtime_cpus_get))
+        .route("/realtime/ram", get(realtime_ram_get))
         .with_state(app_state.clone());
+    let mut sys = System::new();
 
     // Update CPU usage in the background
-    tokio::task::spawn_blocking(move || {
-        let mut sys = System::new();
-        loop {
-            sys.refresh_cpu();
-            let v: Vec<_> = sys.cpus().iter().map(|cpu| cpu.cpu_usage()).collect();
-            let _ = tx.send(v);
-            std::thread::sleep(System::MINIMUM_CPU_UPDATE_INTERVAL);
-        }
+    tokio::task::spawn_blocking(move || loop {
+        sys.refresh_cpu();
+        sys.refresh_memory();
+        let v: Vec<_> = sys.cpus().iter().map(|cpu| cpu.cpu_usage()).collect();
+        let memory: MemState = MemState {
+            total: sys.total_memory(),
+            used: sys.used_memory(),
+        };
+        let _ = cpus_broadcast.send(v);
+        let _ = ram_broadcast.send(memory);
+        std::thread::sleep(System::MINIMUM_CPU_UPDATE_INTERVAL * 3);
     });
-
     let server = Server::bind(&"0.0.0.0:7032".parse().unwrap()).serve(router.into_make_service());
+
     let addr = server.local_addr();
     println!("Listening on {addr}");
 
@@ -48,7 +60,14 @@ async fn main() {
 
 #[derive(Clone)]
 struct AppState {
-    tx: broadcast::Sender<Snapshot>,
+    cpus_broadcast: broadcast::Sender<Snapshot>,
+    ram_broadcast: broadcast::Sender<MemState>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct MemState {
+    total: u64,
+    used: u64,
 }
 
 #[axum::debug_handler]
@@ -87,7 +106,25 @@ async fn realtime_cpus_get(
 }
 
 async fn realtime_cpus_stream(app_state: AppState, mut ws: WebSocket) {
-    let mut rx = app_state.tx.subscribe();
+    let mut rx = app_state.cpus_broadcast.subscribe();
+
+    while let Ok(msg) = rx.recv().await {
+        ws.send(Message::Text(serde_json::to_string(&msg).unwrap()))
+            .await
+            .unwrap();
+    }
+}
+
+#[axum::debug_handler]
+async fn realtime_ram_get(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    ws.on_upgrade(|ws: WebSocket| async { realtime_ram_stream(state, ws).await })
+}
+
+async fn realtime_ram_stream(app_state: AppState, mut ws: WebSocket) {
+    let mut rx = app_state.ram_broadcast.subscribe();
 
     while let Ok(msg) = rx.recv().await {
         ws.send(Message::Text(serde_json::to_string(&msg).unwrap()))
