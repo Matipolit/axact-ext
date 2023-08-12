@@ -1,10 +1,11 @@
 html {
-  color: var(--off-black);
+  color: rgb(var(--off-black));
+  font-family: sans-serif;
 }
 
 .bar {
-  background: var(--dark-blue);
-  color: var(--off-white);
+  background: rgb(var(--dark-red));
+  color: rgb(var(--off-white));
 
   width: 20em;
   height: 2em;
@@ -26,14 +27,11 @@ html {
 
   height: 100%;
 
-  background: var(--blue);
+  background: rgb(var(--red));
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
-
-  /*transition: width 0.2s*/
-  ;
 }
 
 .bar,
