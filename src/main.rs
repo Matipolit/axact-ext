@@ -29,12 +29,13 @@ struct ProcessInfo {
 struct CpuState {
     cores: Vec<CpuCore>,
     temp: f32,
+    core_temp: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct CpuCore {
     usage: f32,
-    temp: f32,
+    temp: Option<f32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -104,26 +105,45 @@ async fn main() {
         let mut cpu_state = CpuState {
             cores: vec![],
             temp: 0.,
+            core_temp: false,
         };
         let cpu_usages: Vec<f32> = sys.cpus().iter().map(|cpu| cpu.cpu_usage()).collect();
-        let components = sys.components();
-        for (i, core) in cpu_usages.into_iter().enumerate() {
-            for component in components {
-                if component
-                    .label()
-                    .to_owned()
-                    .contains(format!("coretemp Core {}", i).as_str())
-                {
-                    cpu_state.cores.push(CpuCore {
-                        usage: core,
-                        temp: component.temperature(),
-                    });
+
+        #[cfg(not(feature = "core_temp"))]
+        {
+            cpu_state.cores = cpu_usages
+                .into_iter()
+                .map(|core_us| CpuCore {
+                    usage: core_us,
+                    temp: None,
+                })
+                .collect();
+        }
+
+        #[cfg(feature = "core_temp")]
+        {
+            cpu_state.core_temp = true;
+            let components = sys.components();
+            for (i, core) in cpu_usages.into_iter().enumerate() {
+                for component in components {
+                    if component
+                        .label()
+                        .to_owned()
+                        .contains(format!("coretemp Core {}", i).as_str())
+                    {
+                        cpu_state.cores.push(CpuCore {
+                            usage: core,
+                            temp: Some(component.temperature()),
+                        });
+                    }
                 }
             }
         }
 
         for component in sys.components() {
-            if component.label().contains("coretemp Package") {
+            if component.label().contains("coretemp Package")
+                || component.label().contains("cpu_thermal")
+            {
                 cpu_state.temp = component.temperature();
             }
         }
