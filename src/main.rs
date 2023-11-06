@@ -90,9 +90,10 @@ async fn main() {
             processes.reverse();
             processes.truncate(4);
 
-            dbg!(&memory_state);
-            dbg!(&processes);
-
+            if cfg!(debug_assertions) {
+                dbg!(&memory_state);
+                dbg!(&processes);
+            }
             let _ = ram_broadcast.send(memory_state);
             let _ = process_broadcast.send(processes);
         }
@@ -148,8 +149,9 @@ async fn main() {
             }
         }
 
-        dbg!(&cpu_state);
-
+        if cfg!(debug_assertions) {
+            dbg!(&cpu_state);
+        }
         let _ = cpus_broadcast.send(cpu_state);
         std::thread::sleep(System::MINIMUM_CPU_UPDATE_INTERVAL * 3);
     });
